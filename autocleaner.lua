@@ -1,8 +1,8 @@
--- [[ ZONHUB - AUTO CLEANER MODULE V3 (SMART SCANNER & GLIDE) ]] --
+-- [[ ZONHUB - AUTO CLEANER MODULE V2 (SMART GLIDE) ]] --
 local TargetPage = ...
 if not TargetPage then warn("Module harus di-load dari ZonIndex!") return end
 
-getgenv().ScriptVersion = "AutoCleaner v3.0-Scanner" 
+getgenv().ScriptVersion = "AutoCleaner v2.0-Glide" 
 
 -- ========================================== --
 local Players = game:GetService("Players")
@@ -18,51 +18,20 @@ LP.Idled:Connect(function() VirtualUser:CaptureController(); VirtualUser:ClickBu
 
 -- [[ SETTING AUTO CLEANER ]] --
 getgenv().EnableCleaner = false
-getgenv().MaxFailsafeHits = 30   -- Batas maksimal memukul agar tidak nyangkut selamanya jika ada block tak bisa hancur (bedrock)
+getgenv().CleanHitCount = 10     -- Default pukulan (6 = dirt, 10 = batu)
 getgenv().HoverHeight = 1.2      -- Ketinggian melayang di atas block (1.2 Grid)
 getgenv().GlideSpeed = 30        -- Kecepatan melayang antar block (Studs per detik)
-getgenv().FastBreakDelay = 0.05  -- Jeda antar pukulan
+getgenv().FastBreakDelay = 0.01  -- Kecepatan pukulan (Sangat cepat)
 getgenv().GridSize = 4.5 
 -- ========================================== --
 
--- [[ 1. FUNGSI SENSOR / SCANNER BLOCK & BACKGROUND ]] --
-local function CheckGridHasBlock(tX, tY, tZ)
-    local worldPos = Vector3.new(tX * getgenv().GridSize, tY * getgenv().GridSize, tZ)
-    
-    local overlapParams = OverlapParams.new()
-    
-    -- Abaikan karakter kita, Hitbox, dan Drop item agar sensor tidak salah baca
-    local ignoreList = {LP.Character}
-    if workspace:FindFirstChild("Hitbox") then table.insert(ignoreList, workspace.Hitbox) end
-    if workspace:FindFirstChild("Drops") then table.insert(ignoreList, workspace.Drops) end
-    
-    overlapParams.FilterDescendantsInstances = ignoreList
-    overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-
-    -- Ukuran kotak sensor:
-    -- X & Y = 3 (Lebih kecil dari 4.5 agar tidak tumpang tindih membaca block tetangganya)
-    -- Z = 10 (Sengaja dibuat panjang ke belakang untuk ikut mendeteksi background dirt)
-    local sensorBoxSize = Vector3.new(3, 3, 10)
-    
-    local parts = workspace:GetPartBoundsInBox(CFrame.new(worldPos), sensorBoxSize, overlapParams)
-    
-    for _, part in ipairs(parts) do
-        if part:IsA("BasePart") then
-            -- Jika masih ada BasePart fisik di area ini, berarti block/background belum bersih
-            return true
-        end
-    end
-    
-    -- Jika loop selesai dan tidak ada part tersisa, berarti bersih total!
-    return false
-end
-
--- [[ 2. FUNGSI GLIDE (TERBANG MULUS) ]] --
+-- [[ FUNGSI GLIDE (TERBANG MULUS) ]] --
 local function SmoothGlideToGrid(tX, tY)
     local HitboxFolder = workspace:FindFirstChild("Hitbox")
     local MyHitbox = HitboxFolder and HitboxFolder:FindFirstChild(LP.Name)
     if not MyHitbox then return end
 
+    -- Kalkulasi posisi target
     local targetZ = MyHitbox.Position.Z
     local targetPos = Vector3.new(tX * getgenv().GridSize, (tY + getgenv().HoverHeight) * getgenv().GridSize, targetZ)
     local distance = (MyHitbox.Position - targetPos).Magnitude
@@ -72,9 +41,12 @@ local function SmoothGlideToGrid(tX, tY)
         local tweenInfo = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
         local tween = TS:Create(MyHitbox, tweenInfo, {CFrame = CFrame.new(targetPos)})
         
+        -- Menonaktifkan tabrakan agar tidak nyangkut saat terbang
         MyHitbox.CanCollide = false 
+        
         tween:Play()
         
+        -- Update visual karakter agar ikut melayang secara real-time
         if PlayerMovement then
             task.spawn(function()
                 while tween.PlaybackState == Enum.PlaybackState.Playing and getgenv().EnableCleaner do
@@ -83,11 +55,12 @@ local function SmoothGlideToGrid(tX, tY)
                 end
             end)
         end
+        
         tween.Completed:Wait()
     end
 end
 
--- [[ 3. UI SETUP ]] --
+-- [[ UI SETUP ]] --
 local Theme = { Item = Color3.fromRGB(45, 45, 45), Text = Color3.fromRGB(255, 255, 255), Purple = Color3.fromRGB(140, 80, 255), Green = Color3.fromRGB(80, 255, 140) }
 
 local function CreateToggle(Parent, Text, Var) 
@@ -108,8 +81,8 @@ end
 
 local function CreateTextBox(Parent, Text, Default, Var) 
     local Frame = Instance.new("Frame", Parent); Frame.BackgroundColor3 = Theme.Item; Frame.Size = UDim2.new(1, -10, 0, 35); local C = Instance.new("UICorner", Frame); C.CornerRadius = UDim.new(0, 6)
-    local Label = Instance.new("TextLabel", Frame); Label.Text = Text; Label.TextColor3 = Theme.Text; Label.BackgroundTransparency = 1; Label.Size = UDim2.new(0.6, 0, 1, 0); Label.Position = UDim2.new(0, 10, 0, 0); Label.Font = Enum.Font.GothamSemibold; Label.TextSize = 12; Label.TextXAlignment = Enum.TextXAlignment.Left
-    local InputBox = Instance.new("TextBox", Frame); InputBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30); InputBox.Position = UDim2.new(0.65, 0, 0.15, 0); InputBox.Size = UDim2.new(0.3, 0, 0.7, 0); InputBox.Font = Enum.Font.GothamSemibold; InputBox.TextSize = 12; InputBox.TextColor3 = Theme.Text; InputBox.Text = tostring(Default); local IC = Instance.new("UICorner", InputBox); IC.CornerRadius = UDim.new(0, 4)
+    local Label = Instance.new("TextLabel", Frame); Label.Text = Text; Label.TextColor3 = Theme.Text; Label.BackgroundTransparency = 1; Label.Size = UDim2.new(0.5, 0, 1, 0); Label.Position = UDim2.new(0, 10, 0, 0); Label.Font = Enum.Font.GothamSemibold; Label.TextSize = 12; Label.TextXAlignment = Enum.TextXAlignment.Left
+    local InputBox = Instance.new("TextBox", Frame); InputBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30); InputBox.Position = UDim2.new(0.6, 0, 0.15, 0); InputBox.Size = UDim2.new(0.35, 0, 0.7, 0); InputBox.Font = Enum.Font.GothamSemibold; InputBox.TextSize = 12; InputBox.TextColor3 = Theme.Text; InputBox.Text = tostring(Default); local IC = Instance.new("UICorner", InputBox); IC.CornerRadius = UDim.new(0, 4)
     InputBox.FocusLost:Connect(function() local val = tonumber(InputBox.Text); if val then getgenv()[Var] = val else InputBox.Text = tostring(getgenv()[Var]) end end)
     return InputBox 
 end
@@ -118,15 +91,15 @@ end
 local InfoLabel = Instance.new("TextLabel", TargetPage)
 InfoLabel.Size = UDim2.new(1, 0, 0, 35)
 InfoLabel.BackgroundTransparency = 1
-InfoLabel.Text = "ℹ️ Smart Scanner Aktif! Pastikan berdiri di atas block."
+InfoLabel.Text = "ℹ️ Berdirilah di atas block pertama, lalu nyalakan."
 InfoLabel.TextColor3 = Theme.Green
 InfoLabel.Font = Enum.Font.GothamSemibold
 InfoLabel.TextSize = 11
 
-CreateTextBox(TargetPage, "Failsafe (Maks Pukulan)", getgenv().MaxFailsafeHits, "MaxFailsafeHits")
+CreateTextBox(TargetPage, "Jumlah Hit (6 Dirt, 10 Batu)", getgenv().CleanHitCount, "CleanHitCount")
 CreateToggle(TargetPage, "🚀 START AUTO GLIDE (Ke Kiri)", "EnableCleaner")
 
--- [[ 4. LOGIKA UTAMA: SCAN, BREAK, & SWEEP ]] --
+-- [[ LOGIKA AUTO CLEANER & SWEEPER ]] --
 local RemoteBreak = RS:WaitForChild("Remotes"):WaitForChild("PlayerFist")
 
 task.spawn(function()
@@ -138,44 +111,30 @@ task.spawn(function()
             if MyHitbox then
                 -- 1. Baca Posisi Saat Ini Otomatis
                 local startX = math.floor(MyHitbox.Position.X / getgenv().GridSize + 0.5)
-                local targetY = math.floor(MyHitbox.Position.Y / getgenv().GridSize + 0.5) - 1 
-                local targetZ = MyHitbox.Position.Z
+                local targetY = math.floor(MyHitbox.Position.Y / getgenv().GridSize + 0.5) - 1 -- Target block pas di bawah kaki
                 
-                -- Batas ekstrim map sebelah kiri
-                local worldLimitLeft = -500 
+                -- Batas limit (misal dunia ujungnya di X = -100)
+                local worldLimitLeft = -200 
 
                 for x = startX, worldLimitLeft, -1 do
                     if not getgenv().EnableCleaner then break end
                     
-                    -- 2. Terbang / melayang tepat di atas target
+                    -- 2. Glide Mulus ke block target
                     SmoothGlideToGrid(x, targetY)
-                    task.wait(0.1) -- Jeda sebentar memposisikan diri
                     
+                    -- 3. Hancurkan block dengan pukulan super cepat
                     local TargetGrid = Vector2.new(x, targetY)
-                    local currentHits = 0
-                    
-                    -- 3. Looping Pukulan Berdasarkan SCANNER
-                    while currentHits < getgenv().MaxFailsafeHits do
+                    for hit = 1, getgenv().CleanHitCount do
                         if not getgenv().EnableCleaner then break end
-                        
-                        -- Cek dengan sensor: Apakah block / background masih ada?
-                        local isBlockStillThere = CheckGridHasBlock(x, targetY, targetZ)
-                        
-                        if not isBlockStillThere then
-                            -- Block dan Background benar-benar bersih! Hentikan pukulan.
-                            break 
-                        end
-                        
-                        -- Jika masih ada, hantam terus!
                         RemoteBreak:FireServer(TargetGrid)
-                        currentHits = currentHits + 1
                         task.wait(getgenv().FastBreakDelay)
                     end
                     
-                    -- Lanjut ke perulangan X berikutnya (sebelah kiri)
+                    -- Beri jeda sangat singkat agar server bisa memproses block hancur
+                    task.wait(0.05) 
                 end
                 
-                -- Mematikan script otomatis jika mencapai ujung dunia
+                -- Jika sudah mencapai ujung kiri ekstrim atau dimatikan
                 getgenv().EnableCleaner = false
             end
         end
