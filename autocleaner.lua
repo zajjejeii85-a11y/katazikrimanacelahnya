@@ -1,260 +1,143 @@
--- [[ ZONHUB - AUTOCLEAR MODULE (GLIDER LEFT-TO-RIGHT LOGIC) ]] --
-local TargetPage = ... 
+-- [[ ZONHUB - AUTO CLEANER MODULE V2 (SMART GLIDE) ]] --
+local TargetPage = ...
 if not TargetPage then warn("Module harus di-load dari ZonIndex!") return end
 
-getgenv().ScriptVersion = "AutoClear v29 - Glider Sweep" 
+getgenv().ScriptVersion = "AutoCleaner v2.0-Glide" 
 
 -- ========================================== --
--- VARIABEL GLOBAL 
--- ========================================== --
-getgenv().AutoClearEnabled = false
-getgenv().AC_StartX = 0
-getgenv().AC_EndX = 100
-getgenv().AC_StartY = 37
-getgenv().AC_EndY = 6
-
-getgenv().GridSize = 4.5     
-getgenv().BreakDelay = 0.05  
-getgenv().StepDelay = 0.1    -- Jeda jalan per grid (Anti-Blink/Glitch)
-getgenv().MoveDelay = 0.15    
-getgenv().MaxHitFailsafe = 20 
-
-getgenv().AC_Blacklist = getgenv().AC_Blacklist or {}
--- ========================================== --
-
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 local RS = game:GetService("ReplicatedStorage")
-local UIS = game:GetService("UserInputService")
+local TS = game:GetService("TweenService")
 local VirtualUser = game:GetService("VirtualUser") 
-
--- Anti AFK
-LP.Idled:Connect(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new()) end)
 
 local PlayerMovement
 pcall(function() PlayerMovement = require(LP.PlayerScripts:WaitForChild("PlayerMovement")) end)
 
-local Remotes = RS:WaitForChild("Remotes")
-local RemoteBreak = Remotes:WaitForChild("PlayerFist")
+LP.Idled:Connect(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new()) end)
 
+-- [[ SETTING AUTO CLEANER ]] --
+getgenv().EnableCleaner = false
+getgenv().CleanHitCount = 10     -- Default pukulan (6 = dirt, 10 = batu)
+getgenv().HoverHeight = 1.2      -- Ketinggian melayang di atas block (1.2 Grid)
+getgenv().GlideSpeed = 30        -- Kecepatan melayang antar block (Studs per detik)
+getgenv().FastBreakDelay = 0.01  -- Kecepatan pukulan (Sangat cepat)
+getgenv().GridSize = 4.5 
 -- ========================================== --
--- FUNGSI UI UTILITY
--- ========================================== --
-local Theme = { Item = Color3.fromRGB(45, 45, 45), Text = Color3.fromRGB(255, 255, 255), Purple = Color3.fromRGB(140, 80, 255) }
 
-local function CreateToggle(Parent, Text, Var) local Btn = Instance.new("TextButton", Parent); Btn.BackgroundColor3 = Theme.Item; Btn.Size = UDim2.new(1, -10, 0, 35); Btn.Text = ""; Btn.AutoButtonColor = false; local C = Instance.new("UICorner", Btn); C.CornerRadius = UDim.new(0, 6); local T = Instance.new("TextLabel", Btn); T.Text = Text; T.TextColor3 = Theme.Text; T.Font = Enum.Font.GothamSemibold; T.TextSize = 12; T.Size = UDim2.new(1, -40, 1, 0); T.Position = UDim2.new(0, 10, 0, 0); T.BackgroundTransparency = 1; T.TextXAlignment = Enum.TextXAlignment.Left; local IndBg = Instance.new("Frame", Btn); IndBg.Size = UDim2.new(0, 36, 0, 18); IndBg.Position = UDim2.new(1, -45, 0.5, -9); IndBg.BackgroundColor3 = Color3.fromRGB(30,30,30); local IC = Instance.new("UICorner", IndBg); IC.CornerRadius = UDim.new(1,0); local Dot = Instance.new("Frame", IndBg); Dot.Size = UDim2.new(0, 14, 0, 14); Dot.Position = UDim2.new(0, 2, 0.5, -7); Dot.BackgroundColor3 = Color3.fromRGB(100,100,100); local DC = Instance.new("UICorner", Dot); DC.CornerRadius = UDim.new(1,0); Btn.MouseButton1Click:Connect(function() getgenv()[Var] = not getgenv()[Var]; if getgenv()[Var] then Dot:TweenPosition(UDim2.new(1, -16, 0.5, -7), "Out", "Quad", 0.2, true); Dot.BackgroundColor3 = Color3.new(1,1,1); IndBg.BackgroundColor3 = Theme.Purple else Dot:TweenPosition(UDim2.new(0, 2, 0.5, -7), "Out", "Quad", 0.2, true); Dot.BackgroundColor3 = Color3.fromRGB(100,100,100); IndBg.BackgroundColor3 = Color3.fromRGB(30,30,30) end end) end
-local function CreateSlider(Parent, Text, Min, Max, Default, Var) local Frame = Instance.new("Frame", Parent); Frame.BackgroundColor3 = Theme.Item; Frame.Size = UDim2.new(1, -10, 0, 45); local C = Instance.new("UICorner", Frame); C.CornerRadius = UDim.new(0, 6); local Label = Instance.new("TextLabel", Frame); Label.Text = Text .. ": " .. Default; Label.TextColor3 = Theme.Text; Label.BackgroundTransparency = 1; Label.Size = UDim2.new(1, 0, 0, 20); Label.Position = UDim2.new(0, 10, 0, 2); Label.Font = Enum.Font.GothamSemibold; Label.TextSize = 12; Label.TextXAlignment = Enum.TextXAlignment.Left; local SliderBg = Instance.new("TextButton", Frame); SliderBg.BackgroundColor3 = Color3.fromRGB(30, 30, 30); SliderBg.Position = UDim2.new(0, 10, 0, 28); SliderBg.Size = UDim2.new(1, -20, 0, 6); SliderBg.Text = ""; SliderBg.AutoButtonColor = false; local SC = Instance.new("UICorner", SliderBg); SC.CornerRadius = UDim.new(1,0); local Fill = Instance.new("Frame", SliderBg); Fill.BackgroundColor3 = Theme.Purple; Fill.Size = UDim2.new((Default-Min)/(Max-Min), 0, 1, 0); local FC = Instance.new("UICorner", Fill); FC.CornerRadius = UDim.new(1,0); local Dragging = false; local function Update(input) local SizeX = math.clamp((input.Position.X - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1); local Val = math.floor(Min + ((Max - Min) * SizeX)); Fill.Size = UDim2.new(SizeX, 0, 1, 0); Label.Text = Text .. ": " .. Val; getgenv()[Var] = Val end; SliderBg.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then Dragging = true; Update(i) end end); UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then Dragging = false end end); UIS.InputChanged:Connect(function(i) if Dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then Update(i) end end) end
+-- [[ FUNGSI GLIDE (TERBANG MULUS) ]] --
+local function SmoothGlideToGrid(tX, tY)
+    local HitboxFolder = workspace:FindFirstChild("Hitbox")
+    local MyHitbox = HitboxFolder and HitboxFolder:FindFirstChild(LP.Name)
+    if not MyHitbox then return end
 
--- ========================================== --
--- MEMBANGUN MENU UI 
--- ========================================== --
-CreateToggle(TargetPage, "Start Auto Clear World", "AutoClearEnabled")
-CreateSlider(TargetPage, "Start X (Kiri)", 0, 500, 0, "AC_StartX")
-CreateSlider(TargetPage, "End X (Kanan)", 0, 500, 100, "AC_EndX")
-CreateSlider(TargetPage, "Start Y (Atas)", 0, 150, 37, "AC_StartY")
-CreateSlider(TargetPage, "End Y (Bawah)", 0, 150, 6, "AC_EndY")
+    -- Kalkulasi posisi target
+    local targetZ = MyHitbox.Position.Z
+    local targetPos = Vector3.new(tX * getgenv().GridSize, (tY + getgenv().HoverHeight) * getgenv().GridSize, targetZ)
+    local distance = (MyHitbox.Position - targetPos).Magnitude
 
--- ========================================== --
--- FUNGSI TERBANG CX (ANTI GETAR & STAY DI ATAS)
--- ========================================== --
-local function ToggleCXFly(state)
-    local Char = LP.Character
-    local HRP = Char and Char:FindFirstChild("HumanoidRootPart")
-    local Hum = Char and Char:FindFirstChildOfClass("Humanoid")
-    local Hitbox = workspace:FindFirstChild("Hitbox") and workspace.Hitbox:FindFirstChild(LP.Name)
-
-    if Hum then Hum.PlatformStand = state end
-
-    local parts = {HRP, Hitbox}
-    for _, part in ipairs(parts) do
-        if part then
-            if state then
-                part.CanCollide = false
-                local bv = part:FindFirstChild("ZON_FlyBV") or Instance.new("BodyVelocity")
-                bv.Name = "ZON_FlyBV"
-                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-                bv.Velocity = Vector3.zero
-                bv.Parent = part
-            else
-                part.CanCollide = true
-                if part:FindFirstChild("ZON_FlyBV") then part.ZON_FlyBV:Destroy() end
-            end
+    if distance > 0.1 then
+        local tweenTime = distance / getgenv().GlideSpeed
+        local tweenInfo = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
+        local tween = TS:Create(MyHitbox, tweenInfo, {CFrame = CFrame.new(targetPos)})
+        
+        -- Menonaktifkan tabrakan agar tidak nyangkut saat terbang
+        MyHitbox.CanCollide = false 
+        
+        tween:Play()
+        
+        -- Update visual karakter agar ikut melayang secara real-time
+        if PlayerMovement then
+            task.spawn(function()
+                while tween.PlaybackState == Enum.PlaybackState.Playing and getgenv().EnableCleaner do
+                    pcall(function() PlayerMovement.Position = MyHitbox.Position end)
+                    task.wait(0.03)
+                end
+            end)
         end
+        
+        tween.Completed:Wait()
     end
 end
 
--- ========================================== --
--- FUNGSI SCAN PINTAR (DETEKSI PINTU & BEDROCK)
--- ========================================== --
-local function GetFilterObjects()
-    local filter = {LP.Character, workspace.CurrentCamera}
-    if workspace:FindFirstChild("Hitbox") then table.insert(filter, workspace.Hitbox) end
-    if workspace:FindFirstChild("DroppedItems") then table.insert(filter, workspace.DroppedItems) end
-    if workspace:FindFirstChild("Items") then table.insert(filter, workspace.Items) end
-    return filter
-end
+-- [[ UI SETUP ]] --
+local Theme = { Item = Color3.fromRGB(45, 45, 45), Text = Color3.fromRGB(255, 255, 255), Purple = Color3.fromRGB(140, 80, 255), Green = Color3.fromRGB(80, 255, 140) }
 
-local function IsObstacle(gridX, gridY)
-    local Hitbox = workspace:FindFirstChild("Hitbox") and workspace.Hitbox:FindFirstChild(LP.Name)
-    local startZ = Hitbox and Hitbox.Position.Z or 0
-    local checkPos = Vector3.new(gridX * getgenv().GridSize, gridY * getgenv().GridSize, startZ)
+local function CreateToggle(Parent, Text, Var) 
+    local Btn = Instance.new("TextButton", Parent); Btn.BackgroundColor3 = Theme.Item; Btn.Size = UDim2.new(1, -10, 0, 35); Btn.Text = ""; local C = Instance.new("UICorner", Btn); C.CornerRadius = UDim.new(0, 6)
+    local T = Instance.new("TextLabel", Btn); T.Text = Text; T.TextColor3 = Theme.Text; T.Font = Enum.Font.GothamSemibold; T.TextSize = 12; T.Size = UDim2.new(1, -40, 1, 0); T.Position = UDim2.new(0, 10, 0, 0); T.BackgroundTransparency = 1; T.TextXAlignment = Enum.TextXAlignment.Left
+    local IndBg = Instance.new("Frame", Btn); IndBg.Size = UDim2.new(0, 36, 0, 18); IndBg.Position = UDim2.new(1, -45, 0.5, -9); IndBg.BackgroundColor3 = Color3.fromRGB(30,30,30); local IC = Instance.new("UICorner", IndBg); IC.CornerRadius = UDim.new(1,0)
+    local Dot = Instance.new("Frame", IndBg); Dot.Size = UDim2.new(0, 14, 0, 14); Dot.Position = UDim2.new(0, 2, 0.5, -7); Dot.BackgroundColor3 = Color3.fromRGB(100,100,100); local DC = Instance.new("UICorner", Dot); DC.CornerRadius = UDim.new(1,0)
     
-    local params = OverlapParams.new()
-    params.FilterDescendantsInstances = GetFilterObjects()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-
-    local parts = workspace:GetPartBoundsInBox(CFrame.new(checkPos), Vector3.new(3, 3, 50), params)
-    for _, part in ipairs(parts) do
-        if part:IsA("BasePart") then
-            local pName = string.lower(part.Name)
-            if string.find(pName, "door") or string.find(pName, "portal") or string.find(pName, "entrance") or string.find(pName, "spawn") or string.find(pName, "bedrock") or string.find(pName, "border") then
-                return true
-            end
-        end
-    end
-    return false
+    Btn.MouseButton1Click:Connect(function() 
+        getgenv()[Var] = not getgenv()[Var]
+        if getgenv()[Var] then 
+            Dot:TweenPosition(UDim2.new(1, -16, 0.5, -7), "Out", "Quad", 0.2, true); Dot.BackgroundColor3 = Color3.new(1,1,1); IndBg.BackgroundColor3 = Theme.Purple 
+        else 
+            Dot:TweenPosition(UDim2.new(0, 2, 0.5, -7), "Out", "Quad", 0.2, true); Dot.BackgroundColor3 = Color3.fromRGB(100,100,100); IndBg.BackgroundColor3 = Color3.fromRGB(30,30,30) 
+        end 
+    end) 
 end
 
-local function NeedsBreaking(gridX, gridY)
-    if getgenv().AC_Blacklist[gridX .. "," .. gridY] then return false end
-    if IsObstacle(gridX, gridY) then return false end
-
-    local Hitbox = workspace:FindFirstChild("Hitbox") and workspace.Hitbox:FindFirstChild(LP.Name)
-    local startZ = Hitbox and Hitbox.Position.Z or 0
-    local checkPos = Vector3.new(gridX * getgenv().GridSize, gridY * getgenv().GridSize, startZ)
-    
-    local params = OverlapParams.new()
-    params.FilterDescendantsInstances = GetFilterObjects()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-
-    local parts = workspace:GetPartBoundsInBox(CFrame.new(checkPos), Vector3.new(3, 3, 50), params)
-    for _, part in ipairs(parts) do
-        if part:IsA("BasePart") then return true end
-    end
-    return false
+local function CreateTextBox(Parent, Text, Default, Var) 
+    local Frame = Instance.new("Frame", Parent); Frame.BackgroundColor3 = Theme.Item; Frame.Size = UDim2.new(1, -10, 0, 35); local C = Instance.new("UICorner", Frame); C.CornerRadius = UDim.new(0, 6)
+    local Label = Instance.new("TextLabel", Frame); Label.Text = Text; Label.TextColor3 = Theme.Text; Label.BackgroundTransparency = 1; Label.Size = UDim2.new(0.5, 0, 1, 0); Label.Position = UDim2.new(0, 10, 0, 0); Label.Font = Enum.Font.GothamSemibold; Label.TextSize = 12; Label.TextXAlignment = Enum.TextXAlignment.Left
+    local InputBox = Instance.new("TextBox", Frame); InputBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30); InputBox.Position = UDim2.new(0.6, 0, 0.15, 0); InputBox.Size = UDim2.new(0.35, 0, 0.7, 0); InputBox.Font = Enum.Font.GothamSemibold; InputBox.TextSize = 12; InputBox.TextColor3 = Theme.Text; InputBox.Text = tostring(Default); local IC = Instance.new("UICorner", InputBox); IC.CornerRadius = UDim.new(0, 4)
+    InputBox.FocusLost:Connect(function() local val = tonumber(InputBox.Text); if val then getgenv()[Var] = val else InputBox.Text = tostring(getgenv()[Var]) end end)
+    return InputBox 
 end
 
--- ========================================== --
--- FUNGSI JALAN PINTAR (AUTO-PARKOUR PINTU)
--- ========================================== --
-local function WalkToGrid(tX, tY)
-    local Hitbox = workspace:FindFirstChild("Hitbox") and workspace.Hitbox:FindFirstChild(LP.Name)
-    local HRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-    if not Hitbox then return end
+-- [[ INJECT MENU KE TARGET PAGE ]] --
+local InfoLabel = Instance.new("TextLabel", TargetPage)
+InfoLabel.Size = UDim2.new(1, 0, 0, 35)
+InfoLabel.BackgroundTransparency = 1
+InfoLabel.Text = "ℹ️ Berdirilah di atas block pertama, lalu nyalakan."
+InfoLabel.TextColor3 = Theme.Green
+InfoLabel.Font = Enum.Font.GothamSemibold
+InfoLabel.TextSize = 11
 
-    local startZ = Hitbox.Position.Z
-    local currentX = math.floor(Hitbox.Position.X / getgenv().GridSize + 0.5)
-    local currentY = math.floor(Hitbox.Position.Y / getgenv().GridSize + 0.5)
+CreateTextBox(TargetPage, "Jumlah Hit (6 Dirt, 10 Batu)", getgenv().CleanHitCount, "CleanHitCount")
+CreateToggle(TargetPage, "🚀 START AUTO GLIDE (Ke Kiri)", "EnableCleaner")
 
-    while (currentX ~= tX or currentY ~= tY) do
-        if not getgenv().AutoClearEnabled then break end
-        
-        local nextX = currentX
-        local nextY = currentY
-
-        if currentX ~= tX then 
-            local stepDir = (tX > currentX) and 1 or -1
-            if IsObstacle(currentX + stepDir, currentY) then
-                nextY = currentY + 1
-            else
-                nextX = currentX + stepDir
-            end
-        elseif currentY < tY then 
-            nextY = currentY + 1
-        elseif currentY > tY then 
-            if IsObstacle(currentX, currentY - 1) then break end
-            nextY = currentY - 1 
-        end
-        
-        currentX = nextX
-        currentY = nextY
-        
-        local newPos = Vector3.new(currentX * getgenv().GridSize, currentY * getgenv().GridSize, startZ)
-        
-        if Hitbox then Hitbox.CFrame = CFrame.new(newPos); Hitbox.Velocity = Vector3.zero end
-        if HRP then HRP.CFrame = CFrame.new(newPos); HRP.Velocity = Vector3.zero end
-        if PlayerMovement then pcall(function() PlayerMovement.Position = newPos end) end
-        
-        task.wait(getgenv().StepDelay)
-    end
-end
-
--- ========================================== --
--- LOGIKA SAPU BERSIH (GLIDER KIRI KE KANAN)
--- ========================================== --
-local isRunning = false
+-- [[ LOGIKA AUTO CLEANER & SWEEPER ]] --
+local RemoteBreak = RS:WaitForChild("Remotes"):WaitForChild("PlayerFist")
 
 task.spawn(function()
-    while task.wait(0.2) do
-        if getgenv().AutoClearEnabled and not isRunning then
-            isRunning = true
-
-            -- [[ AKTIFKAN TERBANG MEMATUNG ]] --
-            ToggleCXFly(true)
-
-            -- [[ PRE-SCAN (Mencari Y paling atas yang ada blocknya) ]] --
-            local highestTargetY = getgenv().AC_StartY
-            for scanY = getgenv().AC_StartY, getgenv().AC_EndY, -1 do
-                local foundBlock = false
-                for scanX = getgenv().AC_StartX, getgenv().AC_EndX do
-                    if NeedsBreaking(scanX, scanY - 1) then
-                        foundBlock = true
-                        break
-                    end
-                end
-                if foundBlock then
-                    highestTargetY = scanY
-                    break
-                end
-            end
-
-            -- Menentukan sisi kiri dan kanan secara absolut
-            local kiriX = math.min(getgenv().AC_StartX, getgenv().AC_EndX)
-            local kananX = math.max(getgenv().AC_StartX, getgenv().AC_EndX)
-
-            for currentY = highestTargetY, getgenv().AC_EndY, -1 do
-                if not getgenv().AutoClearEnabled then break end 
-                local blockTargetY = currentY - 1 
-                
-                -- Glider: Pergi ke ujung kiri setiap kali turun block
-                WalkToGrid(kiriX, currentY)
-                task.wait(0.3) -- Jeda stabilisasi di ujung kiri
-                
-                -- Menyapu bersih dari Kiri ke Kanan
-                for currentX = kiriX, kananX, 1 do
-                    if not getgenv().AutoClearEnabled then break end
-                    
-                    -- Posisi karakter dipastikan tepat di atas grid yang dituju
-                    WalkToGrid(currentX, currentY)
-                    task.wait(getgenv().MoveDelay) 
-                    
-                    if NeedsBreaking(currentX, blockTargetY) then
-                        -- Menghancurkan block hingga BENAR-BENAR hancur
-                        local tries = 0
-                        while tries < getgenv().MaxHitFailsafe do
-                            if not getgenv().AutoClearEnabled then break end
-                            
-                            -- Cek Radar: Jika block sudah hancur, hentikan pukulan dan lanjut
-                            if not NeedsBreaking(currentX, blockTargetY) then break end
-
-                            RemoteBreak:FireServer(Vector2.new(currentX, blockTargetY))
-                            task.wait(getgenv().BreakDelay)
-                            tries = tries + 1
-                        end
-                        
-                        -- Jika ternyata itu bedrock/block abadi
-                        if tries >= getgenv().MaxHitFailsafe then
-                            getgenv().AC_Blacklist[currentX .. "," .. blockTargetY] = true
-                        end
-                    end
-                end
-            end
+    while true do
+        if getgenv().EnableCleaner then
+            local HitboxFolder = workspace:FindFirstChild("Hitbox")
+            local MyHitbox = HitboxFolder and HitboxFolder:FindFirstChild(LP.Name)
             
-            isRunning = false
-            if getgenv().AutoClearEnabled then getgenv().AutoClearEnabled = false end
-            
-            -- Matikan terbang saat selesai
-            ToggleCXFly(false)
+            if MyHitbox then
+                -- 1. Baca Posisi Saat Ini Otomatis
+                local startX = math.floor(MyHitbox.Position.X / getgenv().GridSize + 0.5)
+                local targetY = math.floor(MyHitbox.Position.Y / getgenv().GridSize + 0.5) - 1 -- Target block pas di bawah kaki
+                
+                -- Batas limit (misal dunia ujungnya di X = -100)
+                local worldLimitLeft = -200 
+
+                for x = startX, worldLimitLeft, -1 do
+                    if not getgenv().EnableCleaner then break end
+                    
+                    -- 2. Glide Mulus ke block target
+                    SmoothGlideToGrid(x, targetY)
+                    
+                    -- 3. Hancurkan block dengan pukulan super cepat
+                    local TargetGrid = Vector2.new(x, targetY)
+                    for hit = 1, getgenv().CleanHitCount do
+                        if not getgenv().EnableCleaner then break end
+                        RemoteBreak:FireServer(TargetGrid)
+                        task.wait(getgenv().FastBreakDelay)
+                    end
+                    
+                    -- Beri jeda sangat singkat agar server bisa memproses block hancur
+                    task.wait(0.05) 
+                end
+                
+                -- Jika sudah mencapai ujung kiri ekstrim atau dimatikan
+                getgenv().EnableCleaner = false
+            end
         end
+        task.wait(1)
     end
 end)
