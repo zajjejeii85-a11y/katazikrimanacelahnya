@@ -114,4 +114,30 @@ task.spawn(function()
                 local targetY = math.floor(MyHitbox.Position.Y / getgenv().GridSize + 0.5) - 1 -- Target block pas di bawah kaki
                 
                 -- Batas limit (misal dunia ujungnya di X = -100)
-                local worldLimitLeft =
+                local worldLimitLeft = -200 
+
+                for x = startX, worldLimitLeft, -1 do
+                    if not getgenv().EnableCleaner then break end
+                    
+                    -- 2. Glide Mulus ke block target
+                    SmoothGlideToGrid(x, targetY)
+                    
+                    -- 3. Hancurkan block dengan pukulan super cepat
+                    local TargetGrid = Vector2.new(x, targetY)
+                    for hit = 1, getgenv().CleanHitCount do
+                        if not getgenv().EnableCleaner then break end
+                        RemoteBreak:FireServer(TargetGrid)
+                        task.wait(getgenv().FastBreakDelay)
+                    end
+                    
+                    -- Beri jeda sangat singkat agar server bisa memproses block hancur
+                    task.wait(0.05) 
+                end
+                
+                -- Jika sudah mencapai ujung kiri ekstrim atau dimatikan
+                getgenv().EnableCleaner = false
+            end
+        end
+        task.wait(1)
+    end
+end)
