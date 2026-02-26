@@ -1,8 +1,8 @@
--- [[ ZONHUB - AUTO CLEANER MODULE V2 (SMART GLIDE) ]] --
+-- [[ ZONHUB - AUTO CLEANER MODULE V2.5 (SMART GLIDE & DEEP SWEEP) ]] --
 local TargetPage = ...
 if not TargetPage then warn("Module harus di-load dari ZonIndex!") return end
 
-getgenv().ScriptVersion = "AutoCleaner v2.0-Glide" 
+getgenv().ScriptVersion = "AutoCleaner v2.5-Sweep" 
 
 -- ========================================== --
 local Players = game:GetService("Players")
@@ -18,10 +18,11 @@ LP.Idled:Connect(function() VirtualUser:CaptureController(); VirtualUser:ClickBu
 
 -- [[ SETTING AUTO CLEANER ]] --
 getgenv().EnableCleaner = false
-getgenv().CleanHitCount = 10     -- Default pukulan (6 = dirt, 10 = batu)
-getgenv().HoverHeight = 1.2      -- Ketinggian melayang di atas block (1.2 Grid)
-getgenv().GlideSpeed = 30        -- Kecepatan melayang antar block (Studs per detik)
-getgenv().FastBreakDelay = 0.01  -- Kecepatan pukulan (Sangat cepat)
+-- Dirt butuh 6 hit, background dirt butuh 6 hit. Total = 12. Kita set default 15 untuk jaga-jaga ping/lag.
+getgenv().CleanHitCount = 15     
+getgenv().HoverHeight = 1.2      -- Ketinggian melayang di atas block
+getgenv().GlideSpeed = 30        -- Kecepatan melayang antar block
+getgenv().BreakDelay = 0.05      -- Delay aman agar server tidak menganggap spam (Sama dengan Pabrik.lua)
 getgenv().GridSize = 4.5 
 -- ========================================== --
 
@@ -31,7 +32,6 @@ local function SmoothGlideToGrid(tX, tY)
     local MyHitbox = HitboxFolder and HitboxFolder:FindFirstChild(LP.Name)
     if not MyHitbox then return end
 
-    -- Kalkulasi posisi target
     local targetZ = MyHitbox.Position.Z
     local targetPos = Vector3.new(tX * getgenv().GridSize, (tY + getgenv().HoverHeight) * getgenv().GridSize, targetZ)
     local distance = (MyHitbox.Position - targetPos).Magnitude
@@ -41,12 +41,9 @@ local function SmoothGlideToGrid(tX, tY)
         local tweenInfo = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
         local tween = TS:Create(MyHitbox, tweenInfo, {CFrame = CFrame.new(targetPos)})
         
-        -- Menonaktifkan tabrakan agar tidak nyangkut saat terbang
         MyHitbox.CanCollide = false 
-        
         tween:Play()
         
-        -- Update visual karakter agar ikut melayang secara real-time
         if PlayerMovement then
             task.spawn(function()
                 while tween.PlaybackState == Enum.PlaybackState.Playing and getgenv().EnableCleaner do
@@ -55,7 +52,6 @@ local function SmoothGlideToGrid(tX, tY)
                 end
             end)
         end
-        
         tween.Completed:Wait()
     end
 end
@@ -96,7 +92,9 @@ InfoLabel.TextColor3 = Theme.Green
 InfoLabel.Font = Enum.Font.GothamSemibold
 InfoLabel.TextSize = 11
 
-CreateTextBox(TargetPage, "Jumlah Hit (6 Dirt, 10 Batu)", getgenv().CleanHitCount, "CleanHitCount")
+-- Memberikan kontrol ke user untuk menyesuaikan delay dan hit
+CreateTextBox(TargetPage, "Jumlah Hit (Default 15)", getgenv().CleanHitCount, "CleanHitCount")
+CreateTextBox(TargetPage, "Break Delay (Ping)", getgenv().BreakDelay, "BreakDelay")
 CreateToggle(TargetPage, "🚀 START AUTO GLIDE (Ke Kiri)", "EnableCleaner")
 
 -- [[ LOGIKA AUTO CLEANER & SWEEPER ]] --
@@ -109,32 +107,31 @@ task.spawn(function()
             local MyHitbox = HitboxFolder and HitboxFolder:FindFirstChild(LP.Name)
             
             if MyHitbox then
-                -- 1. Baca Posisi Saat Ini Otomatis
                 local startX = math.floor(MyHitbox.Position.X / getgenv().GridSize + 0.5)
-                local targetY = math.floor(MyHitbox.Position.Y / getgenv().GridSize + 0.5) - 1 -- Target block pas di bawah kaki
+                local targetY = math.floor(MyHitbox.Position.Y / getgenv().GridSize + 0.5) - 1 
                 
-                -- Batas limit (misal dunia ujungnya di X = -100)
                 local worldLimitLeft = -200 
 
                 for x = startX, worldLimitLeft, -1 do
                     if not getgenv().EnableCleaner then break end
                     
-                    -- 2. Glide Mulus ke block target
+                    -- 1. Glide Mulus ke block target
                     SmoothGlideToGrid(x, targetY)
+                    task.wait(0.05) -- Stabilizer sebelum mulai mukul
                     
-                    -- 3. Hancurkan block dengan pukulan super cepat
+                    -- 2. Hancurkan block + background dengan pukulan terukur
                     local TargetGrid = Vector2.new(x, targetY)
                     for hit = 1, getgenv().CleanHitCount do
                         if not getgenv().EnableCleaner then break end
                         RemoteBreak:FireServer(TargetGrid)
-                        task.wait(getgenv().FastBreakDelay)
+                        task.wait(getgenv().BreakDelay) -- Beri waktu server mencatat hit
                     end
                     
-                    -- Beri jeda sangat singkat agar server bisa memproses block hancur
-                    task.wait(0.05) 
+                    -- 3. JEDA KRUSIAL: Tunggu konfirmasi server bahwa block benar-benar hancur
+                    -- sebelum meluncur ke block berikutnya.
+                    task.wait(0.2) 
                 end
                 
-                -- Jika sudah mencapai ujung kiri ekstrim atau dimatikan
                 getgenv().EnableCleaner = false
             end
         end
