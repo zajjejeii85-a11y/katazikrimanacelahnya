@@ -1,8 +1,8 @@
--- [[ ZONHUB - AUTO CLEANER MODULE V3 (ANTI-STUCK & DEEP SWEEP) ]] --
+-- [[ ZONHUB - AUTO CLEANER MODULE V3 (ANTI-STUCK & DEEP SWEEP ZIG-ZAG) ]] --
 local TargetPage = ...
 if not TargetPage then warn("Module harus di-load dari ZonIndex!") return end
 
-getgenv().ScriptVersion = "AutoCleaner v3.0-AntiStuck" 
+getgenv().ScriptVersion = "AutoCleaner v3.1-ZigZag" 
 
 -- ========================================== --
 local Players = game:GetService("Players")
@@ -18,10 +18,14 @@ LP.Idled:Connect(function() VirtualUser:CaptureController(); VirtualUser:ClickBu
 
 -- [[ SETTING AUTO CLEANER ]] --
 getgenv().EnableCleaner = false
-getgenv().CleanHitCount = 15     -- 15 Pukulan jaminan hancur sampai ke background
 getgenv().HoverHeight = 1.2      -- Tinggi melayang absolut
 getgenv().BreakDelay = 0.05      -- Jeda antar pukulan yang aman untuk server
 getgenv().GridSize = 4.5 
+
+-- PENGATURAN AREA ZIG-ZAG
+getgenv().LimitLeft = -100       -- Batas ujung kiri world
+getgenv().LimitRight = 100       -- Batas ujung kanan world
+getgenv().LimitBottom = 0        -- Kedalaman maksimal (Y) untuk berhenti bekerja
 -- ========================================== --
 
 -- [[ UI SETUP ]] --
@@ -60,10 +64,30 @@ InfoLabel.TextColor3 = Theme.Green
 InfoLabel.Font = Enum.Font.GothamSemibold
 InfoLabel.TextSize = 11
 
-CreateTextBox(TargetPage, "Jumlah Hit (Default 15)", getgenv().CleanHitCount, "CleanHitCount")
-CreateToggle(TargetPage, "🚀 START AUTO GLIDE (Anti-Stuck)", "EnableCleaner")
+-- Anda bisa menambahkan CreateTextBox untuk LimitLeft, LimitRight, LimitBottom jika ingin diatur lewat UI
+CreateToggle(TargetPage, "🚀 START ZIG-ZAG SWEEP", "EnableCleaner")
 
--- [[ LOGIKA AUTO CLEANER & SWEEPER ]] --
+
+-- [[ FUNGSI DETEKSI BLOCK ]] --
+local function IsBlockAt(x, y, z)
+    local pos = Vector3.new(x * getgenv().GridSize, y * getgenv().GridSize, z)
+    local overlapParams = OverlapParams.new()
+    overlapParams.FilterDescendantsInstances = {LP.Character, workspace:FindFirstChild("Hitbox")}
+    overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    -- Membuat hitbox tak kasat mata (2x2x2) di tengah grid untuk mendeteksi block
+    local parts = workspace:GetPartBoundsInBox(CFrame.new(pos), Vector3.new(2, 2, 2), overlapParams)
+
+    for _, part in ipairs(parts) do
+        if part.CanCollide or part.Transparency < 1 then
+            return true 
+        end
+    end
+    return false 
+end
+
+
+-- [[ LOGIKA AUTO CLEANER & SWEEPER ZIG-ZAG ]] --
 local RemoteBreak = RS:WaitForChild("Remotes"):WaitForChild("PlayerFist")
 
 task.spawn(function()
@@ -77,47 +101,60 @@ task.spawn(function()
                 MyHitbox.Anchored = true
                 MyHitbox.CanCollide = false
                 
-                local startX = math.floor(MyHitbox.Position.X / getgenv().GridSize + 0.5)
-                local targetY = math.floor(MyHitbox.Position.Y / getgenv().GridSize + 0.5) - 1 
+                local currentX = math.floor(MyHitbox.Position.X / getgenv().GridSize + 0.5)
+                local currentY = math.floor(MyHitbox.Position.Y / getgenv().GridSize + 0.5) - 1 
                 local targetZ = MyHitbox.Position.Z
                 
-                local worldLimitLeft = -200 
+                local movingRight = true 
 
-                for x = startX, worldLimitLeft, -1 do
-                    if not getgenv().EnableCleaner then break end
+                while currentY >= getgenv().LimitBottom and getgenv().EnableCleaner do
                     
-                    -- 1. GLIDE CEPAT & MULUS KE TARGET X
-                    local targetPos = Vector3.new(x * getgenv().GridSize, (targetY + getgenv().HoverHeight) * getgenv().GridSize, targetZ)
-                    local distance = (MyHitbox.Position - targetPos).Magnitude
-                    
-                    if distance > 0.1 then
-                        local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-                        local tween = TS:Create(MyHitbox, tweenInfo, {CFrame = CFrame.new(targetPos)})
-                        
-                        tween:Play()
-                        
-                        -- Update Visual Kamera
-                        if PlayerMovement then
-                            task.spawn(function()
-                                while tween.PlaybackState == Enum.PlaybackState.Playing and getgenv().EnableCleaner do
-                                    pcall(function() PlayerMovement.Position = MyHitbox.Position end)
-                                    task.wait(0.03)
-                                end
-                            end)
-                        end
-                        tween.Completed:Wait()
-                    end
-                    
-                    -- 2. DIAM MENGAMBANG & HANCURKAN BLOCK SAMPAI BERSIH
-                    local TargetGrid = Vector2.new(x, targetY)
-                    for hit = 1, getgenv().CleanHitCount do
+                    local endX = movingRight and getgenv().LimitRight or getgenv().LimitLeft
+                    local step = movingRight and 1 or -1
+
+                    for x = currentX, endX, step do
                         if not getgenv().EnableCleaner then break end
-                        RemoteBreak:FireServer(TargetGrid)
-                        task.wait(getgenv().BreakDelay) 
+                        
+                        -- 1. GLIDE CEPAT & MULUS KE TARGET X
+                        local targetPos = Vector3.new(x * getgenv().GridSize, (currentY + getgenv().HoverHeight) * getgenv().GridSize, targetZ)
+                        local distance = (MyHitbox.Position - targetPos).Magnitude
+                        
+                        if distance > 0.1 then
+                            local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+                            local tween = TS:Create(MyHitbox, tweenInfo, {CFrame = CFrame.new(targetPos)})
+                            tween:Play()
+                            
+                            if PlayerMovement then
+                                task.spawn(function()
+                                    while tween.PlaybackState == Enum.PlaybackState.Playing and getgenv().EnableCleaner do
+                                        pcall(function() PlayerMovement.Position = MyHitbox.Position end)
+                                        task.wait(0.03)
+                                    end
+                                end)
+                            end
+                            tween.Completed:Wait()
+                        end
+                        
+                        -- 2. HANCURKAN BLOCK (PASTIKAN BENAR-BENAR HANCUR)
+                        local TargetGrid = Vector2.new(x, currentY)
+                        local maxRetries = 40 
+                        local hitsDone = 0
+                        
+                        while IsBlockAt(x, currentY, targetZ) and hitsDone < maxRetries and getgenv().EnableCleaner do
+                            RemoteBreak:FireServer(TargetGrid)
+                            hitsDone = hitsDone + 1
+                            task.wait(getgenv().BreakDelay) 
+                        end
+                        
+                        task.wait(0.05) 
                     end
                     
-                    -- Jeda kecil memastikan konfirmasi server
-                    task.wait(0.1) 
+                    -- 3. PERSIAPAN TURUN KE BARIS SELANJUTNYA
+                    if getgenv().EnableCleaner then
+                        currentY = currentY - 1       
+                        movingRight = not movingRight 
+                        currentX = movingRight and getgenv().LimitLeft or getgenv().LimitRight
+                    end
                 end
                 
                 -- KEMBALIKAN FISIKA JIKA SELESAI / DIMATIKAN
